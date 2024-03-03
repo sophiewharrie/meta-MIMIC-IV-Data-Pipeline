@@ -26,13 +26,12 @@ def get_visit_pts(mimic4_path:str, group_col:str, visit_col:str, admit_col:str, 
     """
 
     visit = None # df containing visit information depending on using ICU or not
-    print("reading the visit data")
     if use_ICU:
         visit = pd.read_csv(mimic4_path + "icu/icustays.csv.gz", compression='gzip', header=0, index_col=None, parse_dates=[admit_col, disch_col])
         if use_admn:
             # icustays doesn't have a way to identify if patient died during visit; must
             # use core/patients to remove such stay_ids for readmission labels
-            pts = pd.read_csv(mimic4_path + "hosp/patients.csv.gz", compression='gzip', header=0, index_col=None, usecols=['subject_id', 'dod'], parse_dates=['dod'])
+            pts = pd.read_csv(mimic4_path + "core/patients.csv.gz", compression='gzip', header=0, index_col=None, usecols=['subject_id', 'dod'], parse_dates=['dod'])
             visit = visit.merge(pts, how='inner', left_on='subject_id', right_on='subject_id')
             visit = visit.loc[(visit.dod.isna()) | (visit.dod >= visit[disch_col])]
             if len(disease_label):
@@ -41,7 +40,7 @@ def get_visit_pts(mimic4_path:str, group_col:str, visit_col:str, admit_col:str, 
                 print("[ READMISSION DUE TO "+disease_label+" ]")
         
     else:
-        visit = pd.read_csv(mimic4_path + "hosp/admissions.csv.gz", compression='gzip', header=0, index_col=None, parse_dates=[admit_col, disch_col])
+        visit = pd.read_csv(mimic4_path + "core/admissions.csv.gz", compression='gzip', header=0, index_col=None, parse_dates=[admit_col, disch_col])
         visit['los']=visit[disch_col]-visit[admit_col]
 
         visit[admit_col] = pd.to_datetime(visit[admit_col])
@@ -61,9 +60,8 @@ def get_visit_pts(mimic4_path:str, group_col:str, visit_col:str, admit_col:str, 
                 visit=visit[visit['hadm_id'].isin(hids['hadm_id'])]
                 print("[ READMISSION DUE TO "+disease_label+" ]")
 
-    print("reading the patient data")
     pts = pd.read_csv(
-            mimic4_path + "hosp/patients.csv.gz", compression='gzip', header=0, index_col = None, usecols=[group_col, 'anchor_year', 'anchor_age', 'anchor_year_group', 'dod','gender']
+            mimic4_path + "core/patients.csv.gz", compression='gzip', header=0, index_col = None, usecols=[group_col, 'anchor_year', 'anchor_age', 'anchor_year_group', 'dod','gender']
         )
     pts['yob']= pts['anchor_year'] - pts['anchor_age']  # get yob to ensure a given visit is from an adult
     pts['min_valid_year'] = pts['anchor_year'] + (2019 - pts['anchor_year_group'].str.slice(start=-4).astype(int))
@@ -86,15 +84,14 @@ def get_visit_pts(mimic4_path:str, group_col:str, visit_col:str, admit_col:str, 
     visit_pts['Age']=visit_pts['anchor_age']
     visit_pts = visit_pts.loc[visit_pts['Age'] >= 18]
     
-    print("reading the admissions data")
     ##Add Demo data
-    eth = pd.read_csv(mimic4_path + "hosp/admissions.csv.gz", compression='gzip', header=0, usecols=['hadm_id', 'insurance','race'], index_col=None)
+    eth = pd.read_csv(mimic4_path + "core/admissions.csv.gz", compression='gzip', header=0, usecols=['hadm_id', 'insurance','ethnicity'], index_col=None)
     visit_pts= visit_pts.merge(eth, how='inner', left_on='hadm_id', right_on='hadm_id')
     
     if use_ICU:
-        return visit_pts[[group_col, visit_col, adm_visit_col, admit_col, disch_col,'los', 'min_valid_year', 'dod','Age','gender','race', 'insurance']]
+        return visit_pts[[group_col, visit_col, adm_visit_col, admit_col, disch_col,'los', 'min_valid_year', 'dod','Age','gender','ethnicity', 'insurance']]
     else:
-        return visit_pts.dropna(subset=['min_valid_year'])[[group_col, visit_col, admit_col, disch_col,'los', 'min_valid_year', 'dod','Age','gender','race', 'insurance']]
+        return visit_pts.dropna(subset=['min_valid_year'])[[group_col, visit_col, admit_col, disch_col,'los', 'min_valid_year', 'dod','Age','gender','ethnicity', 'insurance']]
 
 
 def validate_row(row, ctrl, invalid, max_year, disch_col, valid_col, gap):
@@ -260,7 +257,7 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
     summary_output: name of summary output file
     use_ICU: state whether to use ICU patient data or not
     label: Can either be '{day} day Readmission' or 'Mortality', decides what binary data label signifies"""
-    print("===========MIMIC-IV v2.0============")
+    print("===========MIMIC-IV v1.0============")
     if not cohort_output:
         cohort_output="cohort_" + use_ICU.lower() + "_" + label.lower().replace(" ", "_") + "_" + str(time) + "_" + disease_label
     if not summary_output:
@@ -309,9 +306,8 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
         disch_col='dischtime'
         death_col='dod'
 
-    print("get visit pts")
     pts = get_visit_pts(
-        mimic4_path=root_dir+"/../mimiciv/2.0/",
+        mimic4_path=root_dir+"/mimiciv/1.0/",
         group_col=group_col,
         visit_col=visit_col,
         admit_col=admit_col,
@@ -329,7 +325,6 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
     # cols to be extracted from get_case_ctrls
     cols = [group_col, visit_col, admit_col, disch_col, 'Age','gender','ethnicity','insurance','label']
 
-    print("get case ctrls")
     if use_mort:
         cols.append(death_col)
         cohort, invalid = get_case_ctrls(pts, None, group_col, visit_col, admit_col, disch_col,'min_valid_year', death_col, use_mort=True,use_admn=False,use_los=False)
@@ -345,7 +340,7 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
     #print(cohort.head())
     
     if use_disease:
-        hids=disease_cohort.extract_diag_cohort(cohort['hadm_id'],icd_code,root_dir+"/../mimiciv/2.0/")
+        hids=disease_cohort.extract_diag_cohort(cohort['hadm_id'],icd_code,root_dir+"/mimiciv/1.0/")
         #print(hids.shape)
         #print(cohort.shape)
         #print(len(list(set(hids['hadm_id'].unique()).intersection(set(cohort['hadm_id'].unique())))))
@@ -354,7 +349,6 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
         summary_output=summary_output+"_"+icd_code
     #print(cohort[cols].head())
     # save output
-    cohort=cohort.rename(columns={"race":"ethnicity"})
     cohort[cols].to_csv(root_dir+"/data/cohort/"+cohort_output+".csv.gz", index=False, compression='gzip')
     print("[ COHORT SUCCESSFULLY SAVED ]")
 
@@ -366,7 +360,6 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
         f"# Negative cases: {cohort[cohort['label']==0].shape[0]}"
     ])
 
-    print("save summary")
     # save basic summary of data
     with open(f"./data/cohort/{summary_output}.txt", "w") as f:
         f.write(summary)
